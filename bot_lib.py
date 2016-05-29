@@ -2,6 +2,7 @@ import ConfigParser
 import re
 import time
 import logging
+import requests
 
 TWITCH_MSG_REGEX = re.compile(r'^:(?P<user>.+)!.+@.*.tmi.twitch.tv\sPRIVMSG\s#(?P<channel>.+)\s:(?P<msg>.+)', flags=re.M)
 
@@ -25,6 +26,21 @@ def parse_config(config_file='twitch_irc.cfg'):
             return
 
     return cfg
+
+class twitch_api():
+    ENDPOINT = 'https://api.twitch.tv/kraken/'
+    HEADERS = {'Accept': 'application/vnd.twitchtv.v3+json'}
+
+    def __init__(self):
+        pass
+
+    def get_channel_list(self, limit=25):
+        url_params = {'limit': limit}
+        return requests.get(
+                self.ENDPOINT + 'streams',
+                params=url_params,
+                headers=self.HEADERS
+                ).json()
 
 
 class twitch_message():

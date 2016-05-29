@@ -3,6 +3,7 @@ import socket
 import sys
 import boto3
 import redis
+import ssl
 
 BOT_CFG = bot_lib.parse_config() or sys.exit(1)
 
@@ -12,8 +13,10 @@ _redis = redis.StrictRedis(host=BOT_CFG['redis']['endpoint'])
 dynamodb = boto3.resource('dynamodb')
 dynamo_table = dynamodb.Table('twitch_messages')
 
-irc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-irc.connect((BOT_CFG['connection']['server'], 6667))
+irc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+irc = ssl.wrap_socket(irc_socket)
+irc.connect((BOT_CFG['connection']['server'], BOT_CFG['connection']['port']))
+
 
 irc.send("PASS {}\n".format(BOT_CFG['connection']['password']))
 irc.send("USER {} {} {} :hi\n".format(BOT_CFG['connection']['botnick'], BOT_CFG['connection']['botnick'], BOT_CFG['connection']['botnick']))
@@ -26,7 +29,7 @@ while True:
 
     if msg.user_name and msg.message:
         try:
-            print "{}: {}".format(msg.user_name, msg.message)
+            print "{} {}: {}".format(msg.channel, msg.user_name, msg.message)
             _redis.publish(msg.channel, msg.message)
         except UnicodeEncodeError:
             pass
