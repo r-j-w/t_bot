@@ -1,40 +1,36 @@
-import bot_lib
-import sys
-import time
-import re
-import redis
 import threading
-
-BOT_CONFIG = bot_lib.parse_config() or sys.exit(1)
+import re
+import time
+import boto3
 
 
 class bot_parser_thread(threading.Thread):
-    def __init__(self, channel):
+    emotes = ['Kappa', 'LUL', 'gachiGASM', 'SMOrc', 'FeelsBadMan', '4Head', 'haHAA' ]
+
+    def __init__(self, dynamo_table, channel, messages, time_frame=5):
+        self.start_time = time.time()
         threading.Thread.__init__(self)
+        self.dynamo_table = dynamo_table
         self.channel = channel
+        self.messages = messages
+        self.time_frame = int(time_frame)
 
     def run(self):
-        # Setup redis connection
-        self._redis = redis.StrictRedis(host=BOT_CONFIG['redis']['endpoint'])
-        # Subscribe to channel
-        self._redis_pubsub = self._redis.pubsub()
-        self._redis_pubsub.subscribe(self.channel)
+        # Connect to dynamo & open table
+        #dynamo = boto3.resource('dynamodb').Table(self.dynamo_table)
 
-        print 'Thread started {} for channel {}'.format(threading.current_thread().name, self.channel)
+        self.emote_counts = {e: 0 for e in self.emotes}
 
-        # Listen to the redis channel and print any messages
-        while True:
-            for m in self._redis_pubsub.listen():
-                print "{}: {}".format(self.channel, m.get('data'))
+        # Check for emotes in messages
+        for e in self.emotes:
+            r = re.compile(r'(?:^' + e + '\s|\s' + e + '\s|' + e + '$)')
+            self.emote_counts[e] = len([x for x in self.messages if r.search(x)])
 
-# Get channels to listen on (redis channels) as a list to later support multiple channels
-channels_to_monitor = [c.strip('#') for c in BOT_CONFIG['connection']['channels'].split(',')]
-
-for chan in channels_to_monitor:
-    print 'Starting parser for ' + chan
-    bot_parser_thread(chan).start()
-
-print 'Exiting main thread'
-
-# dynamodb = boto3.resource('dynamodb')
-# dynamo_table = dynamodb.Table('twitch_messages')
+        print "{:20s}: {:3d} {:3d}/m Kappas: {} LULs: {} Exec time: {:.5f}".format(
+            self.channel,
+            len(self.messages),
+            len(self.messages) * (60 / self.time_frame),
+            self.emote_counts['Kappa'],
+            self.emote_counts['LUL'],
+            time.time() - self.start_time,
+        )

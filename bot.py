@@ -1,59 +1,71 @@
 import bot_lib
-import socket
 import sys
 import boto3
-import redis
-import ssl
 import signal
+import time
+from bot_parser import bot_parser_thread
 
-BOT_CFG = bot_lib.parse_config() or sys.exit(1)
-
-# Setup redis connection
-_redis = redis.StrictRedis(host=BOT_CFG['redis']['endpoint'])
-
-dynamodb = boto3.resource('dynamodb')
-dynamo_table = dynamodb.Table('twitch_messages')
+BOT_CONFIG = bot_lib.parse_config() or sys.exit(1)
 
 # Get top streams
-twitch = bot_lib.twitch_api()
+twitch_api = bot_lib.twitch_api()
 
 # Merge channel list from api with configured list
-channel_list = twitch.get_top_stream_list() | BOT_CFG['connection']['channel_list']
+channel_list = twitch_api.get_top_stream_list() | BOT_CONFIG['irc']['channel_list']
+
+# channel_list = ['forsenlol']
 
 print "Connecting to: {}".format(','.join(channel_list))
 
-irc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-irc = ssl.wrap_socket(irc_socket)
-irc.connect((BOT_CFG['connection']['server'], BOT_CFG['connection']['port']))
+irc = bot_lib.twitch_irc()
+irc.connect(username=BOT_CONFIG['irc']['username'], password=BOT_CONFIG['irc']['password'])
+
+irc.join_channels(channel_list)
 
 
-irc.send("PASS {}\n".format(BOT_CFG['connection']['password']))
-irc.send("USER {} {} {} :hi\n".format(BOT_CFG['connection']['botnick'], BOT_CFG['connection']['botnick'], BOT_CFG['connection']['botnick']))
-irc.send("NICK {}\n".format(BOT_CFG['connection']['botnick']))
-irc.send("PRIVMSG nickserv :identify {} {}\r\n".format(BOT_CFG['connection']['botnick'], BOT_CFG['connection']['password']))
-irc.send("JOIN #{}\n".format(',#'.join(channel_list)))
-
-
-def sig_int_handler(signal, frame):
-    print 'SIGINT RECEIVED. CLOSING IRC SOCKET'
-    irc_socket.shutdown(socket.SHUT_RDWR)
-    irc_socket.close()
+def sig_handler(signal, frame):
+    print 'SIGNAL {} RECEIVED. CLOSING IRC SOCKET'.format(signal)
+    irc.disconnect()
     sys.exit()
 
-signal.signal(signal.SIGINT, sig_int_handler)
+for s in [signal.SIGINT, signal.SIGTERM]:
+    signal.signal(s, sig_handler)
+
+message_cache = {}
+for c in channel_list:
+    message_cache[c] = []
+
+time_span_begin = time.time()
 
 while True:
-    irc_msg = irc.recv(2040).decode('utf-8')
+    irc_msg = irc.receive()
 
     # If pinged, then pong back
     if irc_msg.startswith('PING :tmi.twitch.tv'):
-        irc.send('PONG :tmi.twitch.tv\r\n'.encode())
+        irc.send('PONG :tmi.twitch.tv\r\n')
 
     msg = bot_lib.twitch_message(irc_msg)
 
     if msg.user_name and msg.message:
         try:
-            print "{}|{}: {}".format(msg.channel, msg.user_name, msg.message)
-            _redis.publish(msg.channel, msg.message)
+            #print "{}|{}: {}".format(msg.channel, msg.user_name, msg.message)
+            message_cache[msg.channel].append(msg.message)
         except UnicodeEncodeError:
             pass
+
+    # If 5 seconds have lapsed then spawn thread to write to db
+    if time.time() - time_span_begin >= 5:
+        print("5 seconds have passed!")
+
+        for chan in message_cache:
+            bot_parser_thread(
+                dynamo_table=BOT_CONFIG['dynamo']['emote_count_table'],
+                channel=chan,
+                messages=message_cache[chan],
+                time_frame=(time.time() - time_span_begin)
+            ).start()
+
+            message_cache[chan] = []
+
+        # Reset time span
+        time_span_begin = time.time()
