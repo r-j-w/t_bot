@@ -31,9 +31,7 @@ def sig_handler(signal, frame):
 for s in [signal.SIGINT, signal.SIGTERM]:
     signal.signal(s, sig_handler)
 
-message_cache = {}
-for c in channel_list:
-    message_cache[c] = []
+message_cache = {c: [] for c in channel_list}
 
 time_span_begin = time.time()
 
@@ -57,15 +55,13 @@ while True:
     if time.time() - time_span_begin >= 5:
         print("5 seconds have passed!")
 
-        for chan in message_cache:
-            bot_parser_thread(
-                dynamo_table=BOT_CONFIG['dynamo']['emote_count_table'],
-                channel=chan,
-                messages=message_cache[chan],
-                time_frame=(time.time() - time_span_begin)
-            ).start()
-
-            message_cache[chan] = []
+        bot_parser_thread(
+            dynamo_table=BOT_CONFIG['dynamo']['emote_count_table'],
+            messages=message_cache,
+            time_frame=(time.time() - time_span_begin)
+        ).start()
+    
+        message_cache = {c: [] for c in channel_list}
 
         # Reset time span
         time_span_begin = time.time()
