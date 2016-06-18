@@ -11,7 +11,7 @@ BOT_CONFIG = bot_lib.parse_config() or sys.exit(1)
 twitch_api = bot_lib.twitch_api()
 
 # Merge channel list from api with configured list
-channel_list = twitch_api.get_top_stream_list() | BOT_CONFIG['irc']['channel_list']
+channel_list = twitch_api.get_top_stream_list(limit=50) | BOT_CONFIG['irc']['channel_list']
 
 # channel_list = ['forsenlol']
 
@@ -58,6 +58,7 @@ while True:
         bot_parser_thread(
             dynamo_table=BOT_CONFIG['dynamo']['emote_count_table'],
             messages=message_cache,
+            emote_dict=BOT_CONFIG['emotes']['emote_dict'],
             time_frame=(time.time() - time_span_begin)
         ).start()
     

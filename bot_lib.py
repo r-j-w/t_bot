@@ -3,7 +3,6 @@ import re
 import time
 import logging
 import requests
-import redis
 import socket
 import ssl
 
@@ -31,6 +30,7 @@ def parse_config(config_file='twitch_irc.cfg'):
             return
 
     cfg['irc']['channel_list'] = set([x for x in cfg['irc']['channels'].split(',') if x])
+    cfg['emotes']['emote_dict'] = {e: re.compile(r'(?:^' + e + '\s|\s' + e + '\s|' + e + '$)') for e in cfg['emotes']['emote_list'].split(',')}
 
     return cfg
 
@@ -101,31 +101,3 @@ class twitch_message():
             self.message = match.group('msg').strip()
             # self.store_message()
             # self.publish_message()
-
-
-class redis_client():
-    ACTIVE_CHAN_LIST = 'active_channels'
-
-    def __init__(self, host):
-        self._redis = redis.StrictRedis(host=host)
-
-    def set_active_channel_list(self, channel_list):
-        self.clear_active_channel_list()
-        for chan in channel_list:
-            self._redis.lpush(self.ACTIVE_CHAN_LIST, chan)
-
-    def get_active_channel_list(self):
-        return set(self._redis.lrange(self.ACTIVE_CHAN_LIST, 0, -1))
-
-    def clear_active_channel_list(self):
-        self.delete_keys(self.ACTIVE_CHAN_LIST)
-
-    def delete_keys(self, *keys):
-        keys = list(keys)
-        self._redis.delete(keys)
-
-    def publish_msg(self, channel, msg):
-        self._redis.publish(channel, msg)
-
-    def flush_db(self):
-        self._redis.flushdb()
